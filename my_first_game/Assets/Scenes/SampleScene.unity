@@ -710,7 +710,7 @@ MonoBehaviour:
   hitbox: {fileID: 2145109691}
   animator: {fileID: 820374464}
   windupTime: 0
-  activeTime: 0.15
+  activeTime: 0.2
   recoveryTime: 0.1
   inputBufferTime: 0.15
   damage: 10
@@ -787,7 +787,7 @@ MonoBehaviour:
   moveSpeed: 6
   accelTime: 0.08
   decelTime: 0.12
-  moveWhileAttacking: 0.3
+  moveWhileAttacking: 0.7
   dashSpeed: 20
   dashDuration: 0.22
   dashCooldown: 0.4
