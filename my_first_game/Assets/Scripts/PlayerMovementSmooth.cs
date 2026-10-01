@@ -3,6 +3,11 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerMovementSmooth : MonoBehaviour
 {
+    // 상단 변수 선언부에 추가
+    [Header("Stamina Reference")]
+    [SerializeField] private PlayerHealthStamina stamina;
+    [SerializeField] private PlayerStatsData stats;
+    
     [Header("References")]
     [SerializeField] private PlayerInputHandler input;
     [SerializeField] private PlayerAttack attack;
@@ -77,16 +82,26 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     private void StartDash()
     {
+        // 스태미나가 연결되어 있다면 먼저 소모 시도 (부족하면 대시 취소)
+        if (stamina != null && stats != null)
+        {
+            if (!stamina.TryConsumeStamina(stats.dashCost))
+            {
+                Debug.Log("스태미나 부족으로 대시 불가");
+                return;
+            }
+        }
+
         isDashing = true;
         dashTimer = 0f;
         dashDir = moveDir.sqrMagnitude > 0.01f ? moveDir.normalized : lastDir;
 
-        if (attack != null) {
+        if (attack != null)
+        {
             attack.CancelAttack();
             attack.InputLocked = true;
         }
     }
-
     private void EndDash()
     {
         isDashing = false;
