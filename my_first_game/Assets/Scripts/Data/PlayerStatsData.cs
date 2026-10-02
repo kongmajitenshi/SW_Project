@@ -4,6 +4,10 @@ using UnityEngine;
 [CreateAssetMenu(fileName = "NewPlayerStats", menuName = "Combat/PlayerStatsData")]
 public class PlayerStatsData : ScriptableObject
 {
+    [Header("Attack")]
+    public float baseAttack = 10f;         // 플레이어 기본 공격력 (무기 공격력이 여기에 더해짐)
+
+    
     [Header("Health")]
     public float maxHealth = 100f;
 

@@ -13,7 +13,8 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
     public float MaxStamina => stats.maxStamina;
     public float DashCost   => stats.dashCost;
     public float ParryCost  => stats.parryCost;
-
+    public float BaseAttack => stats.baseAttack;
+    
     public event Action<float, float> OnHealthChanged;   // (현재, 최대)
     public event Action<float, float> OnStaminaChanged;  // (현재, 최대)
     public event Action OnDeath;

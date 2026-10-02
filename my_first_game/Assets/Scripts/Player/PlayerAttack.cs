@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Attack 액션(좌클릭 / 게임패드 등)으로 공격 (2D 프로젝트용).
-/// 입력은 PlayerInputHandler에서 받는다 (키를 직접 확인하지 않는다).
+/// Attack 액션으로 공격 (2D 프로젝트용). 입력은 PlayerInputHandler에서 받는다.
+/// 데미지 = 플레이어 기본 공격력 + 장착 무기 공격력.
 /// 공격은 Windup(선딜) -> Active(판정) -> Recovery(후딜) 3단계 상태머신으로 진행된다.
 /// </summary>
 public class PlayerAttack : MonoBehaviour
@@ -13,10 +13,16 @@ public class PlayerAttack : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private PlayerInputHandler input;
-    [Tooltip("무기(직사각형)에 붙은 BoxCollider2D. 판정 범위로만 사용된다.")]
+    [Tooltip("플레이어 기본 공격력을 읽어오기 위해 사용")]
+    [SerializeField] private PlayerHealthStamina status;          // [추가]
+    [Tooltip("판정 범위로 쓸 BoxCollider2D")]
     [SerializeField] private BoxCollider2D hitbox;
     [Tooltip("휘두르기 애니메이션이 들어있는 Animator (없어도 판정은 동작)")]
     [SerializeField] private Animator animator;
+
+    [Header("Weapon")]
+    [Tooltip("현재 장착한 무기. 비워두면 맨손(기본 공격력만)")]
+    [SerializeField] private WeaponData weapon;                   // [추가]
 
     [Header("Timing (초) - 애니메이션 길이와 맞춰주세요")]
     [SerializeField, Min(0f)] private float windupTime = 0.10f;
@@ -26,7 +32,7 @@ public class PlayerAttack : MonoBehaviour
     [SerializeField, Min(0f)] private float inputBufferTime = 0.15f;
 
     [Header("Combat")]
-    [SerializeField] private float damage = 10f;
+    // [삭제] private float damage = 10f;  → 이제 CurrentDamage로 계산
     [SerializeField] private LayerMask targetLayers = ~0;
 
     public AttackState State { get; private set; } = AttackState.Idle;
@@ -35,8 +41,11 @@ public class PlayerAttack : MonoBehaviour
     /// <summary>true 이면 새 공격을 시작할 수 없다 (대쉬 중 등에서 외부가 설정).</summary>
     public bool InputLocked { get; set; }
 
-    /// <summary>타격 성공 시 호출. 역경직/카메라 연출 등을 여기에 연결하면 된다.</summary>
-    public event Action<IDamageable, Vector3> HitLanded;
+    /// <summary>[추가] 지금 공격하면 들어갈 데미지 (기본 공격력 + 무기 공격력)</summary>
+    public float CurrentDamage => status.BaseAttack + (weapon != null ? weapon.attackPower : 0f);
+
+    /// <summary>[수정] 타격 성공 시 호출 (맞은 대상, 맞은 위치, 들어간 데미지)</summary>
+    public event Action<IDamageable, Vector3, float> HitLanded;
 
     private static readonly int AttackTrigger = Animator.StringToHash("Attack");
     private static readonly int IdleState = Animator.StringToHash("Idle");
@@ -49,9 +58,10 @@ public class PlayerAttack : MonoBehaviour
 
     private void Awake()
     {
-        if (input == null || hitbox == null)
+        // [수정] status 연결 여부도 검사
+        if (input == null || status == null || hitbox == null)
         {
-            Debug.LogError($"{nameof(PlayerAttack)}: input 또는 hitbox가 연결되지 않았습니다.", this);
+            Debug.LogError($"{nameof(PlayerAttack)}: input, status, hitbox 중 연결되지 않은 것이 있습니다.", this);
             enabled = false;
             return;
         }
@@ -70,7 +80,7 @@ public class PlayerAttack : MonoBehaviour
         if (input.AttackPressed && !InputLocked)
         {
             if (!IsAttacking) StartAttack();
-            else bufferTimer = inputBufferTime; // 공격 중 입력은 잠깐 기억해뒀다가 후딜 뒤에 실행
+            else bufferTimer = inputBufferTime;
         }
 
         if (bufferTimer > 0f) bufferTimer -= Time.deltaTime;
@@ -81,6 +91,12 @@ public class PlayerAttack : MonoBehaviour
     private void LateUpdate()
     {
         if (State == AttackState.Active) DetectHits();
+    }
+
+    /// <summary>[추가] 무기 교체. 나중에 인벤토리/장비창에서 호출하면 된다.</summary>
+    public void EquipWeapon(WeaponData newWeapon)
+    {
+        weapon = newWeapon;
     }
 
     private void StartAttack()
@@ -172,8 +188,9 @@ public class PlayerAttack : MonoBehaviour
             if (!alreadyHit.Add(target)) continue;
 
             Vector2 hitPoint = col.ClosestPoint(center);
+            float damage = CurrentDamage;                   // [수정] 맞히는 순간의 공격력으로 계산
             target.TakeDamage(damage, hitPoint);
-            HitLanded?.Invoke(target, hitPoint);
+            HitLanded?.Invoke(target, hitPoint, damage);    // [수정] 데미지 값도 함께 알림
         }
     }
 
