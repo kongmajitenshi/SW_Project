@@ -18,6 +18,8 @@ public class PlayerParry : MonoBehaviour
     [SerializeField] private BoxCollider2D hitbox;
     [Tooltip("패링 애니메이션이 들어있는 Animator (Animator 창에 'Parry', 'Idle' 상태가 있어야 함)")]
     [SerializeField] private Animator animator;
+    [Tooltip("스태미나 소모/페이백용")]
+    [SerializeField] private PlayerHealthStamina stamina; // [추가]
 
     [Header("Parry")]
     [SerializeField, Min(0.05f)] private float parryDuration = 0.3f;
@@ -31,7 +33,7 @@ public class PlayerParry : MonoBehaviour
     /// <summary>패링 판정에 대상이 걸렸을 때 호출. 역경직/카메라 연출 등을 여기에 연결하면 된다.</summary>
     public event Action<IParryable, Vector3> ParrySucceeded;
 
-    private static readonly int ParryStateHash = Animator.StringToHash("Parry"); // Animator 창의 상태 이름
+    private static readonly int ParryStateHash = Animator.StringToHash("Parry");
     private static readonly int IdleStateHash = Animator.StringToHash("Idle");
 
     private readonly HashSet<IParryable> alreadyParried = new HashSet<IParryable>();
@@ -39,11 +41,13 @@ public class PlayerParry : MonoBehaviour
     private ContactFilter2D contactFilter;
     private float parryEndTime;
     private float nextParryTime;
+    private bool paybackGiven; // [추가] 한 번의 패링에서 페이백은 1회만
 
     private void Awake()
     {
-        if (input == null || hitbox == null) {
-            Debug.LogError($"{nameof(PlayerParry)}: input 또는 hitbox가 연결되지 않았습니다.", this);
+        // [수정] stamina 연결 여부도 함께 검사
+        if (input == null || hitbox == null || stamina == null) {
+            Debug.LogError($"{nameof(PlayerParry)}: input, hitbox, stamina 중 연결되지 않은 것이 있습니다.", this);
             enabled = false;
             return;
         }
@@ -71,24 +75,26 @@ public class PlayerParry : MonoBehaviour
             StartParry();
     }
 
-    // 애니메이터가 이번 프레임의 무기 자세를 정한 뒤에 판정해야 하므로 LateUpdate에서 검사한다.
     private void LateUpdate()
     {
         if (IsParrying) DetectParry();
     }
 
-    // 대쉬 중처럼 공격 입력이 잠긴 상태에서는 패링을 시작할 수 없다.
     private bool CanStartParry() => attack == null || !attack.InputLocked;
 
     private void StartParry()
     {
+        // [추가] 스태미나가 부족하면 패링이 나가지 않는다 (부족 메시지는 PlayerHealthStamina가 처리)
+        if (!stamina.TryConsumeStamina(stamina.ParryCost)) return;
+        paybackGiven = false;
+
         IsParrying = true;
         parryEndTime = Time.time + parryDuration;
         alreadyParried.Clear();
 
         if (attack != null) {
-            attack.CancelAttack();     // 휘두르던 공격이 있으면 취소
-            attack.InputLocked = true; // 패링 중엔 공격 불가
+            attack.CancelAttack();
+            attack.InputLocked = true;
         }
 
         if (animator != null) animator.Play(ParryStateHash, 0, 0f);
@@ -100,7 +106,7 @@ public class PlayerParry : MonoBehaviour
         nextParryTime = Time.time + parryCooldown;
 
         if (attack != null) attack.InputLocked = false;
-        if (animator != null) animator.Play(IdleStateHash, 0, 0f); // 무기를 원래 자세로
+        if (animator != null) animator.Play(IdleStateHash, 0, 0f);
     }
 
     private void GetHitboxWorldBox(out Vector2 center, out Vector2 size, out float angle)
@@ -121,19 +127,24 @@ public class PlayerParry : MonoBehaviour
 
         for (int i = 0; i < count; i++) {
             Collider2D col = overlapResults[i];
-            if (col.transform.IsChildOf(transform)) continue; // 자기 자신(플레이어) 제외
+            if (col.transform.IsChildOf(transform)) continue;
 
             IParryable target = col.GetComponentInParent<IParryable>();
             if (target == null) continue;
-            if (!alreadyParried.Add(target)) continue; // 한 번 패링에 같은 대상은 1회만
+            if (!alreadyParried.Add(target)) continue;
 
             Vector2 hitPoint = col.ClosestPoint(center);
             target.OnParried(hitPoint);
             ParrySucceeded?.Invoke(target, hitPoint);
+
+            // [추가] 패링 성공 페이백 (여러 대상이 걸려도 1회만)
+            if (!paybackGiven) {
+                stamina.OnParrySuccess();
+                paybackGiven = true;
+            }
         }
     }
 
-    // Scene 뷰에서 패링 판정 범위 확인용 (진한 초록: 패링 발동 중)
     private void OnDrawGizmos()
     {
         if (hitbox == null) return;

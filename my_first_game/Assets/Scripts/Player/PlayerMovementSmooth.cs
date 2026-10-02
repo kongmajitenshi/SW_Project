@@ -6,7 +6,6 @@ public class PlayerMovementSmooth : MonoBehaviour
     // 상단 변수 선언부에 추가
     [Header("Stamina Reference")]
     [SerializeField] private PlayerHealthStamina stamina;
-    [SerializeField] private PlayerStatsData stats;
     
     [Header("References")]
     [SerializeField] private PlayerInputHandler input;
@@ -39,7 +38,14 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     public bool IsDashing => isDashing;
 
-    private void Awake() => rb = GetComponent<Rigidbody2D>();
+    private void Awake()
+    {
+        rb = GetComponent<Rigidbody2D>();
+        
+        if(stamina == null)
+            Debug.LogError($"{nameof(PlayerMovementSmooth)}: stamina(PlayerHealthStamina)가 연결되지 않았습니다.", this);
+
+    }
 
     private void OnDisable()
     {
@@ -83,14 +89,8 @@ public class PlayerMovementSmooth : MonoBehaviour
     private void StartDash()
     {
         // 스태미나가 연결되어 있다면 먼저 소모 시도 (부족하면 대시 취소)
-        if (stamina != null && stats != null)
-        {
-            if (!stamina.TryConsumeStamina(stats.dashCost))
-            {
-                Debug.Log("스태미나 부족으로 대시 불가");
-                return;
-            }
-        }
+        // 스태미나가 부족하면 대쉬 취소 (부족 메시지는 PlayerHealthStamina가 출력)
+        if (stamina == null || !stamina.TryConsumeStamina(stamina.DashCost)) return;
 
         isDashing = true;
         dashTimer = 0f;

@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 /// <summary>
-/// 마우스 좌클릭 / 게임패드 X(West) 버튼으로 공격 (2D 프로젝트용).
+/// Attack 액션(좌클릭 / 게임패드 등)으로 공격 (2D 프로젝트용).
+/// 입력은 PlayerInputHandler에서 받는다 (키를 직접 확인하지 않는다).
 /// 공격은 Windup(선딜) -> Active(판정) -> Recovery(후딜) 3단계 상태머신으로 진행된다.
 /// </summary>
 public class PlayerAttack : MonoBehaviour
@@ -12,6 +12,7 @@ public class PlayerAttack : MonoBehaviour
     public enum AttackState { Idle, Windup, Active, Recovery }
 
     [Header("References")]
+    [SerializeField] private PlayerInputHandler input;
     [Tooltip("무기(직사각형)에 붙은 BoxCollider2D. 판정 범위로만 사용된다.")]
     [SerializeField] private BoxCollider2D hitbox;
     [Tooltip("휘두르기 애니메이션이 들어있는 Animator (없어도 판정은 동작)")]
@@ -41,46 +42,32 @@ public class PlayerAttack : MonoBehaviour
     private static readonly int IdleState = Animator.StringToHash("Idle");
 
     private readonly HashSet<IDamageable> alreadyHit = new HashSet<IDamageable>();
-    private readonly Collider2D[] overlapResults = new Collider2D[16]; // GC 없이 재사용할 결과 버퍼
+    private readonly Collider2D[] overlapResults = new Collider2D[16];
     private ContactFilter2D contactFilter;
-    private InputAction attackAction;
     private float stateTimer;
     private float bufferTimer;
 
     private void Awake()
     {
-        if (hitbox == null)
+        if (input == null || hitbox == null)
         {
-            Debug.LogError($"{nameof(PlayerAttack)}: hitbox(BoxCollider2D)가 연결되지 않았습니다.", this);
+            Debug.LogError($"{nameof(PlayerAttack)}: input 또는 hitbox가 연결되지 않았습니다.", this);
             enabled = false;
             return;
         }
 
-        // 판정 전용 콜라이더: 물리 충돌로 캐릭터/적을 밀어내지 않도록 트리거로 고정
         hitbox.isTrigger = true;
 
         contactFilter = new ContactFilter2D();
         contactFilter.SetLayerMask(targetLayers);
-        contactFilter.useTriggers = true; // 적의 히트박스 등 트리거 콜라이더도 감지 대상에 포함
-
-        attackAction = new InputAction("Attack", InputActionType.Button);
-        attackAction.AddBinding("<Mouse>/leftButton");
-        attackAction.AddBinding("<Gamepad>/buttonWest"); // Xbox 컨트롤러의 X 버튼
+        contactFilter.useTriggers = true;
     }
 
-    private void OnEnable() => attackAction?.Enable();
-
-    private void OnDisable()
-    {
-        attackAction?.Disable();
-        CancelAttack();
-    }
-
-    private void OnDestroy() => attackAction?.Dispose();
+    private void OnDisable() => CancelAttack();
 
     private void Update()
     {
-        if (attackAction.WasPressedThisFrame() && !InputLocked)
+        if (input.AttackPressed && !InputLocked)
         {
             if (!IsAttacking) StartAttack();
             else bufferTimer = inputBufferTime; // 공격 중 입력은 잠깐 기억해뒀다가 후딜 뒤에 실행
@@ -91,8 +78,6 @@ public class PlayerAttack : MonoBehaviour
         if (IsAttacking) TickState(Time.deltaTime);
     }
 
-    // 애니메이터는 Update 뒤 LateUpdate 전에 포즈를 갱신하므로,
-    // 이번 프레임에 실제로 보이는 무기 위치로 판정하려면 LateUpdate에서 검사한다.
     private void LateUpdate()
     {
         if (State == AttackState.Active) DetectHits();
@@ -118,7 +103,7 @@ public class PlayerAttack : MonoBehaviour
         if (animator != null)
         {
             animator.ResetTrigger(AttackTrigger);
-            animator.Play(IdleState, 0, 0f); // 컨트롤러에 "Idle" 이름의 상태가 있어야 함
+            animator.Play(IdleState, 0, 0f);
         }
     }
 
@@ -126,7 +111,6 @@ public class PlayerAttack : MonoBehaviour
     {
         stateTimer += dt;
 
-        // 프레임이 길어져도 단계를 건너뛰지 않도록 while 사용 (남은 시간은 다음 단계로 이월)
         while (IsAttacking && stateTimer >= CurrentStateDuration())
         {
             stateTimer -= CurrentStateDuration();
@@ -157,7 +141,7 @@ public class PlayerAttack : MonoBehaviour
                 break;
             case AttackState.Recovery:
                 State = AttackState.Idle;
-                if (bufferTimer > 0f) StartAttack(); // 선입력이 남아있으면 바로 다음 공격
+                if (bufferTimer > 0f) StartAttack();
                 break;
         }
     }
@@ -169,7 +153,7 @@ public class PlayerAttack : MonoBehaviour
 
         center = t.TransformPoint(hitbox.offset);
         size = Vector2.Scale(hitbox.size, new Vector2(Mathf.Abs(s.x), Mathf.Abs(s.y)));
-        angle = t.eulerAngles.z; // 2D는 Z축 회전만 의미가 있음
+        angle = t.eulerAngles.z;
     }
 
     private void DetectHits()
@@ -181,19 +165,18 @@ public class PlayerAttack : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             Collider2D col = overlapResults[i];
-            if (col.transform.IsChildOf(transform)) continue; // 자기 자신(플레이어) 제외
+            if (col.transform.IsChildOf(transform)) continue;
 
             IDamageable target = col.GetComponentInParent<IDamageable>();
             if (target == null) continue;
-            if (!alreadyHit.Add(target)) continue; // 한 번 휘두를 때 같은 대상은 1회만
+            if (!alreadyHit.Add(target)) continue;
 
             Vector2 hitPoint = col.ClosestPoint(center);
-            target.TakeDamage(damage, hitPoint); // Vector2 -> Vector3 암시적 변환 (z=0)
+            target.TakeDamage(damage, hitPoint);
             HitLanded?.Invoke(target, hitPoint);
         }
     }
 
-    // Scene/Game 뷰에서 판정 범위 확인용 (노란색: 대기, 빨간색: 판정 활성)
     private void OnDrawGizmos()
     {
         if (hitbox == null) return;

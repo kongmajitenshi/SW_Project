@@ -1,17 +1,21 @@
-using System; // Action 이벤트를 사용하기 위해 필수로 필요합니다.
+using System;
 using UnityEngine;
 
 public class PlayerHealthStamina : MonoBehaviour, IDamageable
 {
     [SerializeField] private PlayerStatsData stats;
 
-    // UI에서 읽어갈 수 있도록 public 프로퍼티 선언
     public float CurrentHealth { get; private set; }
     public float CurrentStamina { get; private set; }
 
-    // UI가 구독할 이벤트 선언 (에러가 났던 원인)
-    public event Action<float, float> OnHealthChanged;   // (현재 체력, 최대 체력)
-    public event Action<float, float> OnStaminaChanged;  // (현재 스태미너, 최대 스태미너)
+    // 다른 스크립트가 SO를 직접 들고 있지 않아도 되도록 여기서 꺼내준다
+    public float MaxHealth  => stats.maxHealth;
+    public float MaxStamina => stats.maxStamina;
+    public float DashCost   => stats.dashCost;
+    public float ParryCost  => stats.parryCost;
+
+    public event Action<float, float> OnHealthChanged;   // (현재, 최대)
+    public event Action<float, float> OnStaminaChanged;  // (현재, 최대)
     public event Action OnDeath;
     public event Action OnStaminaExhausted;
 
@@ -22,6 +26,7 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
         if (stats == null)
         {
             Debug.LogError($"{nameof(PlayerHealthStamina)}: PlayerStatsData 에셋이 연결되지 않았습니다.", this);
+            enabled = false; // Update가 돌면서 에러를 매 프레임 뿜지 않도록 꺼둔다
             return;
         }
 
@@ -49,7 +54,7 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
         }
     }
 
-    // 스태미너 소모 시도 (대시, 패링에서 호출)
+    /// <summary>스태미나가 충분하면 소모하고 true, 부족하면 false</summary>
     public bool TryConsumeStamina(float amount)
     {
         if (CurrentStamina >= amount)
@@ -60,18 +65,23 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
             return true;
         }
 
+        Debug.Log("스태미너 부족!");
         OnStaminaExhausted?.Invoke();
         return false;
     }
 
-    // 패링 성공 시 스태미너 페이백
     public void PaybackStamina(float amount)
     {
         CurrentStamina = Mathf.Min(CurrentStamina + amount, stats.maxStamina);
         OnStaminaChanged?.Invoke(CurrentStamina, stats.maxStamina);
     }
 
-    // IDamageable 구현 (피격 시 체력 감소 및 UI 알림)
+    /// <summary>패링 성공 시 PlayerParry가 호출</summary>
+    public void OnParrySuccess()
+    {
+        PaybackStamina(stats.parryPayback);
+    }
+
     public void TakeDamage(float amount, Vector3 hitPoint)
     {
         CurrentHealth = Mathf.Max(0f, CurrentHealth - amount);
@@ -86,10 +96,8 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
         }
     }
 
-    // 구역 클리어 시 체력 완전 회복
     public void ResetHealth()
     {
-        if (stats == null) return;
         CurrentHealth = stats.maxHealth;
         OnHealthChanged?.Invoke(CurrentHealth, stats.maxHealth);
     }
