@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fb73e389f4ccc4c1e8bfc0a7723fd76f, type: 3}
   m_Name: DefaultPlayerStats
   m_EditorClassIdentifier: Assembly-CSharp::PlayerStatsData
+  baseAttack: 10
   maxHealth: 100
   maxStamina: 100
   dashCost: 15
