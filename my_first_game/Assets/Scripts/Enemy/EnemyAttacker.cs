@@ -3,20 +3,18 @@ using UnityEngine;
 /// <summary>
 /// 테스트용 적 공격 루프: 대기 → 예고(선딜) → 적중 → 후딜 → 대기 ...
 /// 적중하는 순간 PlayerParry.Judge()로 패링 여부를 묻고, 결과에 따라 반응한다.
+/// 색 변경은 직접 하지 않고 EnemyVisual에 요청한다.
+/// 적이 쓰러지거나 플레이어가 사망하면 공격을 멈춘다.
 /// 공격 범위는 아직 없다 (전투 중 적은 항상 화면 안에 있다는 전제의 테스트 버전).
 /// </summary>
-[RequireComponent(typeof(Enemy))]
+[RequireComponent(typeof(Enemy), typeof(EnemyVisual))]
 public class EnemyAttacker : MonoBehaviour
 {
     private enum State { Idle, Windup, Recovery, Staggered }
 
-    [Header("References")]
-    [Tooltip("공격 예고 색을 표시할 그림 (비워두면 자식까지 찾아서 자동 연결)")]
-    [SerializeField] private SpriteRenderer spriteRenderer;
-
     [Header("공격 예고 색")]
     [SerializeField] private Color parryableColor = new Color(1f, 0.85f, 0.2f);   // 노랑: 패리 가능
-    [SerializeField] private Color unparryableColor = new Color(1f, 0.2f, 0.2f);  // 빨강: 패리 불가
+    [SerializeField] private Color unparryableColor = new Color(0.7f, 0.3f, 1f);  // 보라: 패리 불가
     [SerializeField] private Color staggeredColor = new Color(0.4f, 0.7f, 1f);    // 파랑: 그로기
 
     [Header("패링 당했을 때")]
@@ -24,9 +22,9 @@ public class EnemyAttacker : MonoBehaviour
     [SerializeField, Min(0f)] private float perfectStaggerTime = 1.2f;
 
     private Enemy enemy;
+    private EnemyVisual visual;
     private PlayerParry playerParry;
     private PlayerHealthStamina playerHealth;
-    private Color baseColor;
 
     private State state = State.Idle;
     private float timer;
@@ -36,13 +34,31 @@ public class EnemyAttacker : MonoBehaviour
     private void Awake()
     {
         enemy = GetComponent<Enemy>();
+        visual = GetComponent<EnemyVisual>();
+    }
 
-        if (spriteRenderer == null) spriteRenderer = GetComponentInChildren<SpriteRenderer>();
-        if (spriteRenderer != null) baseColor = spriteRenderer.color;
+    // [추가] 적이 쓰러졌다는 방송을 듣기 시작
+    private void OnEnable()
+    {
+        if (enemy != null) enemy.Died += OnEnemyDied;
+    }
+
+    // [추가] 방송 듣기 중단
+    private void OnDisable()
+    {
+        if (enemy != null) enemy.Died -= OnEnemyDied;
     }
 
     private void Start()
     {
+        // 이미 붙어 있던 오브젝트에는 RequireComponent가 자동 추가를 안 해주므로 직접 확인
+        if (visual == null)
+        {
+            Debug.LogError($"{nameof(EnemyAttacker)}: 같은 오브젝트에 EnemyVisual 컴포넌트를 추가해주세요.", this);
+            enabled = false;
+            return;
+        }
+
         // 프리팹은 씬 안의 오브젝트를 미리 연결해 둘 수 없으므로, 시작할 때 플레이어를 찾는다
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player != null)
@@ -70,6 +86,13 @@ public class EnemyAttacker : MonoBehaviour
 
     private void Update()
     {
+        // [추가] 플레이어가 죽었으면 공격하지 않고 대기
+        if (playerHealth.IsDead)
+        {
+            if (state != State.Idle) BackToIdle(); // 예고 중이었다면 예고 색도 정리
+            return;
+        }
+
         timer -= Time.deltaTime;
         if (timer > 0f) return;
 
@@ -91,7 +114,7 @@ public class EnemyAttacker : MonoBehaviour
 
         state = State.Windup;
         timer = currentAttack.windupTime;
-        SetColor(currentAttack.parryable ? parryableColor : unparryableColor);
+        visual.SetStateColor(currentAttack.parryable ? parryableColor : unparryableColor);
 
         Debug.Log($"[{enemy.Data.enemyName}] {currentAttack.attackName} 준비 " +
                   $"({(currentAttack.parryable ? "패리 가능" : "패리 불가")})");
@@ -108,21 +131,21 @@ public class EnemyAttacker : MonoBehaviour
                 Debug.Log($"[{enemy.Data.enemyName}] 퍼펙트 패리 당함! {perfectStaggerTime}초 그로기");
                 state = State.Staggered;
                 timer = perfectStaggerTime;
-                SetColor(staggeredColor);
+                visual.SetStateColor(staggeredColor);
                 break;
 
             case ParryResult.Normal:
                 Debug.Log($"[{enemy.Data.enemyName}] 공격이 패리됨");
                 state = State.Recovery;
                 timer = currentAttack.recoveryTime;
-                SetColor(baseColor);
+                visual.ClearStateColor();
                 break;
 
             default: // 패리 실패 or 패리 불가 공격 → 플레이어 피격
                 playerHealth.TakeDamage(currentAttack.damage, playerHealth.transform.position);
                 state = State.Recovery;
                 timer = currentAttack.recoveryTime;
-                SetColor(baseColor);
+                visual.ClearStateColor();
                 break;
         }
     }
@@ -131,11 +154,12 @@ public class EnemyAttacker : MonoBehaviour
     {
         state = State.Idle;
         timer = enemy.Data.attackInterval;
-        SetColor(baseColor);
+        visual.ClearStateColor();
     }
 
-    private void SetColor(Color color)
+    // [추가] 적이 쓰러지면 이 스크립트를 꺼서 공격 루프(Update)를 멈춘다
+    private void OnEnemyDied()
     {
-        if (spriteRenderer != null) spriteRenderer.color = color;
+        enabled = false;
     }
 }

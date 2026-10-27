@@ -8,26 +8,33 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
     public float CurrentHealth { get; private set; }
     public float CurrentStamina { get; private set; }
 
-    // 다른 스크립트가 SO를 직접 들고 있지 않아도 되도록 여기서 꺼내준다
     public float MaxHealth  => stats.maxHealth;
     public float MaxStamina => stats.maxStamina;
     public float DashCost   => stats.dashCost;
     public float ParryCost  => stats.parryCost;
     public float BaseAttack => stats.baseAttack;
-    
+
+    /// <summary>[추가] 체력이 0이면 사망</summary>
+    public bool IsDead => CurrentHealth <= 0f;
+
+    /// <summary>지금 무적 상태인지</summary>
+    public bool IsInvincible => invincibleCount > 0;
+
     public event Action<float, float> OnHealthChanged;   // (현재, 최대)
     public event Action<float, float> OnStaminaChanged;  // (현재, 최대)
+    public event Action<float> OnDamaged;                // [추가] 실제로 피해를 입었을 때 (데미지)
     public event Action OnDeath;
     public event Action OnStaminaExhausted;
 
     private float regenTimer;
+    private int invincibleCount;   // 무적을 요청한 곳의 개수
 
     private void Awake()
     {
         if (stats == null)
         {
             Debug.LogError($"{nameof(PlayerHealthStamina)}: PlayerStatsData 에셋이 연결되지 않았습니다.", this);
-            enabled = false; // Update가 돌면서 에러를 매 프레임 뿜지 않도록 꺼둔다
+            enabled = false;
             return;
         }
 
@@ -55,7 +62,6 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
         }
     }
 
-    /// <summary>스태미나가 충분하면 소모하고 true, 부족하면 false</summary>
     public bool TryConsumeStamina(float amount)
     {
         if (CurrentStamina >= amount)
@@ -77,20 +83,38 @@ public class PlayerHealthStamina : MonoBehaviour, IDamageable
         OnStaminaChanged?.Invoke(CurrentStamina, stats.maxStamina);
     }
 
-    /// <summary>패링 성공 시 PlayerParry가 호출</summary>
     public void OnParrySuccess()
     {
         PaybackStamina(stats.parryPayback);
     }
 
+    public void BeginInvincible()
+    {
+        invincibleCount++;
+    }
+
+    public void EndInvincible()
+    {
+        invincibleCount = Mathf.Max(0, invincibleCount - 1);
+    }
+
     public void TakeDamage(float amount, Vector3 hitPoint)
     {
+        if (IsDead) return;   // [추가] 이미 죽었으면 더 맞지 않음
+
+        if (IsInvincible)
+        {
+            Debug.Log("[플레이어] 무적 상태라 피해 무시");
+            return;
+        }
+
         CurrentHealth = Mathf.Max(0f, CurrentHealth - amount);
         OnHealthChanged?.Invoke(CurrentHealth, stats.maxHealth);
-
         Debug.Log($"[플레이어 피격] 데미지: {amount}, 남은 체력: {CurrentHealth}");
 
-        if (CurrentHealth <= 0f)
+        OnDamaged?.Invoke(amount);   // [추가] 경직 등 피격 반응용
+
+        if (IsDead)
         {
             OnDeath?.Invoke();
             Debug.Log("[플레이어 사망]");

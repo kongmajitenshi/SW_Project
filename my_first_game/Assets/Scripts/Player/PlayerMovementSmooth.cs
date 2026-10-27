@@ -3,13 +3,11 @@ using UnityEngine;
 [RequireComponent(typeof(Rigidbody2D))]
 public class PlayerMovementSmooth : MonoBehaviour
 {
-    // 상단 변수 선언부에 추가
-    [Header("Stamina Reference")]
-    [SerializeField] private PlayerHealthStamina stamina;
-    
     [Header("References")]
     [SerializeField] private PlayerInputHandler input;
-    [SerializeField] private PlayerAttack attack;
+    [SerializeField] private PlayerStateController playerState;   // [추가]
+    [SerializeField] private PlayerHealthStamina stamina;
+    // [삭제] PlayerAttack attack → 공격 잠금·취소는 상태 관리가 대신 함
 
     [Header("Move")]
     [SerializeField] private float moveSpeed = 6f;
@@ -29,7 +27,8 @@ public class PlayerMovementSmooth : MonoBehaviour
     [SerializeField] private AnimationCurve dashSpeedCurve = AnimationCurve.Linear(0f, 1f, 1f, 0.2f);
 
     private Rigidbody2D rb;
-    private Vector2 moveDir;
+    private Vector2 inputDir;   // [추가] 플레이어가 누른 방향 (경직 중에도 기억 → 대쉬 방향에 사용)
+    private Vector2 moveDir;    // 실제로 걸어갈 방향 (경직·사망 중엔 0)
     private Vector2 lastDir = Vector2.right;
     private Vector2 dashDir;
     private bool isDashing;
@@ -41,30 +40,45 @@ public class PlayerMovementSmooth : MonoBehaviour
     private void Awake()
     {
         rb = GetComponent<Rigidbody2D>();
-        
-        if(stamina == null)
-            Debug.LogError($"{nameof(PlayerMovementSmooth)}: stamina(PlayerHealthStamina)가 연결되지 않았습니다.", this);
 
+        if (input == null || playerState == null || stamina == null)
+        {
+            Debug.LogError($"{nameof(PlayerMovementSmooth)}: input, playerState, stamina 중 연결되지 않은 것이 있습니다.", this);
+            enabled = false;
+        }
+    }
+
+    private void OnEnable()
+    {
+        if (playerState != null) playerState.StateChanged += OnStateChanged;
     }
 
     private void OnDisable()
     {
+        if (playerState != null) playerState.StateChanged -= OnStateChanged;
         if (isDashing) EndDash();
     }
 
     private void Update()
     {
-        moveDir = Vector2.ClampMagnitude(input.Move, 1f);
-        if (moveDir.sqrMagnitude > 0.01f) lastDir = moveDir.normalized;
+        inputDir = Vector2.ClampMagnitude(input.Move, 1f);
+        if (inputDir.sqrMagnitude > 0.01f) lastDir = inputDir.normalized;
 
-        if (!isDashing && input.DashPressed && Time.time >= nextDashTime)
+        // [추가] 경직·사망 중엔 걸어서 이동 불가 (대쉬로 탈출은 가능)
+        PlayerState current = playerState.Current;
+        bool canWalk = current != PlayerState.HitStun && current != PlayerState.Dead;
+        moveDir = canWalk ? inputDir : Vector2.zero;
+
+        // [수정] 대쉬 가능 여부는 상태 관리에게 물어본다
+        if (!isDashing && input.DashPressed && Time.time >= nextDashTime
+            && playerState.CanEnter(PlayerState.Dashing))
             StartDash();
     }
 
     private void FixedUpdate()
     {
-        // 대쉬: 시간이 지날수록 곡선을 따라 속도가 줄어든다
-        if (isDashing) {
+        if (isDashing)
+        {
             dashTimer += Time.fixedDeltaTime;
             float t = Mathf.Clamp01(dashTimer / dashDuration);
             rb.linearVelocity = dashDir * (dashSpeed * dashSpeedCurve.Evaluate(t));
@@ -73,14 +87,11 @@ public class PlayerMovementSmooth : MonoBehaviour
             return;
         }
 
-        // 일반 이동: 현재 속도를 목표 속도 쪽으로 조금씩 이동시킨다
         float maxSpeed = moveSpeed;
-        if (attack != null && attack.IsAttacking) maxSpeed *= moveWhileAttacking;
+        if (playerState.Current == PlayerState.Attacking) maxSpeed *= moveWhileAttacking;   // [수정]
 
         Vector2 targetVelocity = moveDir * maxSpeed;
         bool hasInput = moveDir.sqrMagnitude > 0.01f;
-
-        // 입력이 있으면 가속, 없으면 감속(미끄러짐)
         float rate = moveSpeed / (hasInput ? accelTime : decelTime);
 
         rb.linearVelocity = Vector2.MoveTowards(rb.linearVelocity, targetVelocity, rate * Time.fixedDeltaTime);
@@ -88,24 +99,30 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     private void StartDash()
     {
-        // 스태미나가 연결되어 있다면 먼저 소모 시도 (부족하면 대시 취소)
-        // 스태미나가 부족하면 대쉬 취소 (부족 메시지는 PlayerHealthStamina가 출력)
-        if (stamina == null || !stamina.TryConsumeStamina(stamina.DashCost)) return;
+        // 순서 중요: 상태 허락(Update에서 확인) → 스태미나 소모 → 상태 전환 → 무적
+        if (!stamina.TryConsumeStamina(stamina.DashCost)) return;
+
+        playerState.TryEnter(PlayerState.Dashing);   // 공격·패리·경직 중이었다면 여기서 자동으로 취소됨
+        stamina.BeginInvincible();
 
         isDashing = true;
         dashTimer = 0f;
-        dashDir = moveDir.sqrMagnitude > 0.01f ? moveDir.normalized : lastDir;
-
-        if (attack != null)
-        {
-            attack.CancelAttack();
-            attack.InputLocked = true;
-        }
+        dashDir = inputDir.sqrMagnitude > 0.01f ? inputDir.normalized : lastDir;
     }
+
     private void EndDash()
     {
+        if (!isDashing) return;   // 두 번 불려도 무적이 두 번 꺼지지 않게
+
         isDashing = false;
+        stamina.EndInvincible();
         nextDashTime = Time.time + dashCooldown;
-        if (attack != null) attack.InputLocked = false;
+        playerState.Exit(PlayerState.Dashing);
+    }
+
+    // [추가] 대쉬 도중 다른 상태(사망 등)로 바뀌면 대쉬를 정리한다
+    private void OnStateChanged(PlayerState prev, PlayerState next)
+    {
+        if (isDashing && next != PlayerState.Dashing) EndDash();
     }
 }
