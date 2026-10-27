@@ -4,19 +4,17 @@ using UnityEngine;
 
 /// <summary>
 /// Attack 액션으로 공격 (2D 프로젝트용). 입력은 PlayerInputHandler에서 받는다.
-/// 데미지 = 플레이어 기본 공격력 + 장착 무기 공격력.
+/// 데미지 = 플레이어 기본 공격력(PlayerStats) + 장착 무기 공격력.
 /// 공격 시작은 PlayerStateController의 허락을 받고, 상태가 바뀌어 끊기면 스스로 정리한다.
 /// </summary>
+[RequireComponent(typeof(PlayerInputHandler), typeof(PlayerStateController), typeof(PlayerStats))]   // [추가]
 public class PlayerAttack : MonoBehaviour
 {
     public enum AttackState { Idle, Windup, Active, Recovery }
 
     [Header("References")]
-    [SerializeField] private PlayerInputHandler input;
-    [SerializeField] private PlayerStateController playerState;   // [추가]
-    [Tooltip("플레이어 기본 공격력을 읽어오기 위해 사용")]
-    [SerializeField] private PlayerHealthStamina status;
-    [Tooltip("판정 범위로 쓸 BoxCollider2D")]
+    // [삭제] input, playerState, status 칸 → Awake에서 자동으로 찾음
+    [Tooltip("판정 범위로 쓸 BoxCollider2D (무기 자식 오브젝트)")]
     [SerializeField] private BoxCollider2D hitbox;
     [Tooltip("휘두르기 애니메이션이 들어있는 Animator (없어도 판정은 동작)")]
     [SerializeField] private Animator animator;
@@ -39,14 +37,17 @@ public class PlayerAttack : MonoBehaviour
     public AttackState State { get; private set; } = AttackState.Idle;
     public bool IsAttacking => State != AttackState.Idle;
 
-    // [삭제] InputLocked → 상태 관리(PlayerStateController)가 대신 함
-
-    public float CurrentDamage => status.BaseAttack + (weapon != null ? weapon.attackPower : 0f);
+    /// <summary>지금 공격하면 들어갈 데미지 (기본 공격력 + 무기 공격력)</summary>
+    public float CurrentDamage => stats.BaseAttack + (weapon != null ? weapon.attackPower : 0f);   // [수정] status → stats
 
     public event Action<IDamageable, Vector3, float> HitLanded;
 
     private static readonly int AttackTrigger = Animator.StringToHash("Attack");
     private static readonly int IdleState = Animator.StringToHash("Idle");
+
+    private PlayerInputHandler input;          // [수정] 자동 연결
+    private PlayerStateController playerState; // [수정] 자동 연결
+    private PlayerStats stats;                 // [수정] PlayerHealthStamina status → PlayerStats, 자동 연결
 
     private readonly HashSet<IDamageable> alreadyHit = new HashSet<IDamageable>();
     private readonly Collider2D[] overlapResults = new Collider2D[16];
@@ -56,9 +57,14 @@ public class PlayerAttack : MonoBehaviour
 
     private void Awake()
     {
-        if (input == null || playerState == null || status == null || hitbox == null)
+        // [수정] 같은 오브젝트의 컴포넌트를 스스로 찾는다
+        input = GetComponent<PlayerInputHandler>();
+        playerState = GetComponent<PlayerStateController>();
+        stats = GetComponent<PlayerStats>();
+
+        if (input == null || playerState == null || stats == null || hitbox == null)
         {
-            Debug.LogError($"{nameof(PlayerAttack)}: input, playerState, status, hitbox 중 연결되지 않은 것이 있습니다.", this);
+            Debug.LogError($"{nameof(PlayerAttack)}: 필요한 컴포넌트가 없거나 hitbox가 연결되지 않았습니다.", this);
             enabled = false;
             return;
         }
@@ -85,8 +91,8 @@ public class PlayerAttack : MonoBehaviour
     {
         if (input.AttackPressed)
         {
-            if (IsAttacking) bufferTimer = inputBufferTime;                        // 공격 중: 선입력 저장
-            else if (playerState.TryEnter(PlayerState.Attacking)) StartAttack();   // [수정] 허락받고 시작
+            if (IsAttacking) bufferTimer = inputBufferTime;
+            else if (playerState.TryEnter(PlayerState.Attacking)) StartAttack();
         }
 
         if (bufferTimer > 0f) bufferTimer -= Time.deltaTime;
@@ -114,7 +120,6 @@ public class PlayerAttack : MonoBehaviour
         if (animator != null) animator.SetTrigger(AttackTrigger);
     }
 
-    /// <summary>[수정] 공격을 즉시 멈추고 정리한다. (예전 CancelAttack — 이제 외부에서 부르지 않음)</summary>
     private void StopAttack()
     {
         State = AttackState.Idle;
@@ -130,7 +135,6 @@ public class PlayerAttack : MonoBehaviour
         if (playerState != null) playerState.Exit(PlayerState.Attacking);
     }
 
-    // [추가] 공격 도중 대쉬·패리·경직·사망으로 상태가 바뀌면 공격을 정리한다
     private void OnStateChanged(PlayerState prev, PlayerState next)
     {
         if (IsAttacking && next != PlayerState.Attacking) StopAttack();
@@ -170,9 +174,9 @@ public class PlayerAttack : MonoBehaviour
                 break;
             case AttackState.Recovery:
                 State = AttackState.Idle;
-                playerState.Exit(PlayerState.Attacking);   // [추가] 공격 끝 → 대기
+                playerState.Exit(PlayerState.Attacking);
                 if (bufferTimer > 0f && playerState.TryEnter(PlayerState.Attacking))
-                    StartAttack();                         // 선입력이 있으면 바로 다음 공격
+                    StartAttack();
                 break;
         }
     }

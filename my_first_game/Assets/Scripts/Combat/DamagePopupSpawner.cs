@@ -4,15 +4,23 @@ using UnityEngine;
 /// 플레이어의 공격이 맞을 때마다 맞은 위치에 데미지 숫자를 생성한다.
 /// 몬스터 쪽 코드는 수정할 필요가 없다 (IDamageable만 구현하면 자동으로 숫자가 뜬다).
 /// </summary>
+[RequireComponent(typeof(PlayerAttack))]   // [추가]
 public class DamagePopupSpawner : MonoBehaviour
 {
-    [SerializeField] private PlayerAttack attack;
+    // [삭제] attack 칸 → Awake에서 자동으로 찾음
     [Tooltip("DamagePopup이 붙은 프리팹")]
     [SerializeField] private DamagePopup popupPrefab;
     [Tooltip("맞은 위치에서 얼마나 위에 띄울지 (월드 단위)")]
     [SerializeField] private Vector3 offset = new Vector3(0f, 0.5f, 0f);
     [Tooltip("숫자가 겹치지 않도록 좌우로 무작위로 흩어지는 범위")]
     [SerializeField, Min(0f)] private float randomSpreadX = 0.3f;
+
+    private PlayerAttack attack;   // [수정] 자동 연결
+
+    private void Awake()
+    {
+        attack = GetComponent<PlayerAttack>();   // [추가]
+    }
 
     private void OnEnable()
     {

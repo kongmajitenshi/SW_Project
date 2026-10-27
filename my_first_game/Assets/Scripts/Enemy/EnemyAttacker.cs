@@ -2,7 +2,7 @@ using UnityEngine;
 
 /// <summary>
 /// 테스트용 적 공격 루프: 대기 → 예고(선딜) → 적중 → 후딜 → 대기 ...
-/// 적중하는 순간 PlayerParry.Judge()로 패링 여부를 묻고, 결과에 따라 반응한다.
+/// 적중하는 순간 PlayerParry.Judge()로 패리 여부를 묻고, 결과에 따라 반응한다.
 /// 색 변경은 직접 하지 않고 EnemyVisual에 요청한다.
 /// 적이 쓰러지거나 플레이어가 사망하면 공격을 멈춘다.
 /// 공격 범위는 아직 없다 (전투 중 적은 항상 화면 안에 있다는 전제의 테스트 버전).
@@ -24,7 +24,7 @@ public class EnemyAttacker : MonoBehaviour
     private Enemy enemy;
     private EnemyVisual visual;
     private PlayerParry playerParry;
-    private PlayerHealthStamina playerHealth;
+    private PlayerHealth playerHealth;   // [수정] PlayerHealthStamina → PlayerHealth
 
     private State state = State.Idle;
     private float timer;
@@ -37,13 +37,11 @@ public class EnemyAttacker : MonoBehaviour
         visual = GetComponent<EnemyVisual>();
     }
 
-    // [추가] 적이 쓰러졌다는 방송을 듣기 시작
     private void OnEnable()
     {
         if (enemy != null) enemy.Died += OnEnemyDied;
     }
 
-    // [추가] 방송 듣기 중단
     private void OnDisable()
     {
         if (enemy != null) enemy.Died -= OnEnemyDied;
@@ -51,7 +49,6 @@ public class EnemyAttacker : MonoBehaviour
 
     private void Start()
     {
-        // 이미 붙어 있던 오브젝트에는 RequireComponent가 자동 추가를 안 해주므로 직접 확인
         if (visual == null)
         {
             Debug.LogError($"{nameof(EnemyAttacker)}: 같은 오브젝트에 EnemyVisual 컴포넌트를 추가해주세요.", this);
@@ -59,17 +56,16 @@ public class EnemyAttacker : MonoBehaviour
             return;
         }
 
-        // 프리팹은 씬 안의 오브젝트를 미리 연결해 둘 수 없으므로, 시작할 때 플레이어를 찾는다
         GameObject player = GameObject.FindGameObjectWithTag("Player");
         if (player != null)
         {
             playerParry = player.GetComponent<PlayerParry>();
-            playerHealth = player.GetComponent<PlayerHealthStamina>();
+            playerHealth = player.GetComponent<PlayerHealth>();   // [수정]
         }
 
         if (playerHealth == null)
         {
-            Debug.LogError($"{nameof(EnemyAttacker)}: 'Player' 태그가 붙은 PlayerHealthStamina를 찾지 못했습니다.", this);
+            Debug.LogError($"{nameof(EnemyAttacker)}: 'Player' 태그가 붙은 PlayerHealth를 찾지 못했습니다.", this);   // [수정]
             enabled = false;
             return;
         }
@@ -86,17 +82,15 @@ public class EnemyAttacker : MonoBehaviour
 
     private void Update()
     {
-        // [추가] 플레이어가 죽었으면 공격하지 않고 대기
         if (playerHealth.IsDead)
         {
-            if (state != State.Idle) BackToIdle(); // 예고 중이었다면 예고 색도 정리
+            if (state != State.Idle) BackToIdle();
             return;
         }
 
         timer -= Time.deltaTime;
         if (timer > 0f) return;
 
-        // 타이머가 끝나면 현재 상태에 따라 다음 단계로
         switch (state)
         {
             case State.Idle:      StartWindup(); break;
@@ -110,7 +104,7 @@ public class EnemyAttacker : MonoBehaviour
     {
         EnemyAttackData[] attacks = enemy.Data.attacks;
         currentAttack = attacks[nextAttackIndex];
-        nextAttackIndex = (nextAttackIndex + 1) % attacks.Length; // 마지막 다음엔 다시 0번으로
+        nextAttackIndex = (nextAttackIndex + 1) % attacks.Length;
 
         state = State.Windup;
         timer = currentAttack.windupTime;
@@ -120,7 +114,6 @@ public class EnemyAttacker : MonoBehaviour
                   $"({(currentAttack.parryable ? "패리 가능" : "패리 불가")})");
     }
 
-    // 선딜이 끝나는 순간 = 공격이 적중하는 순간
     private void Impact()
     {
         ParryResult result = playerParry != null ? playerParry.Judge(currentAttack) : ParryResult.None;
@@ -141,7 +134,7 @@ public class EnemyAttacker : MonoBehaviour
                 visual.ClearStateColor();
                 break;
 
-            default: // 패리 실패 or 패리 불가 공격 → 플레이어 피격
+            default:
                 playerHealth.TakeDamage(currentAttack.damage, playerHealth.transform.position);
                 state = State.Recovery;
                 timer = currentAttack.recoveryTime;
@@ -157,7 +150,6 @@ public class EnemyAttacker : MonoBehaviour
         visual.ClearStateColor();
     }
 
-    // [추가] 적이 쓰러지면 이 스크립트를 꺼서 공격 루프(Update)를 멈춘다
     private void OnEnemyDied()
     {
         enabled = false;

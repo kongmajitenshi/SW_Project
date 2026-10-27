@@ -4,21 +4,27 @@ using UnityEngine;
 /// 플레이어가 맞았을 때의 반응을 담당한다.
 /// 맞으면 잠깐 경직(대쉬·패리로 탈출 가능), 체력이 0이 되면 사망 상태로 전환.
 /// </summary>
+[RequireComponent(typeof(PlayerHealth), typeof(PlayerStateController))]   // [추가]
 public class PlayerHitReaction : MonoBehaviour
 {
-    [SerializeField] private PlayerHealthStamina health;
-    [SerializeField] private PlayerStateController playerState;
+    // [삭제] health, playerState 칸 → Awake에서 자동으로 찾음
 
     [Tooltip("맞았을 때 행동할 수 없는 시간(초). 0이면 경직 없음")]
     [SerializeField, Min(0f)] private float hitStunDuration = 0.3f;
 
+    private PlayerHealth health;               // [수정] PlayerHealthStamina → PlayerHealth, 자동 연결
+    private PlayerStateController playerState; // [수정] 자동 연결
     private float stunTimer;
 
     private void Awake()
     {
+        // [수정] 같은 오브젝트의 컴포넌트를 스스로 찾는다
+        health = GetComponent<PlayerHealth>();
+        playerState = GetComponent<PlayerStateController>();
+
         if (health == null || playerState == null)
         {
-            Debug.LogError($"{nameof(PlayerHitReaction)}: health 또는 playerState가 연결되지 않았습니다.", this);
+            Debug.LogError($"{nameof(PlayerHitReaction)}: 같은 오브젝트에 PlayerHealth 또는 PlayerStateController가 없습니다.", this);
             enabled = false;
         }
     }
@@ -47,11 +53,11 @@ public class PlayerHitReaction : MonoBehaviour
 
     private void OnDamaged(float amount)
     {
-        if (health.IsDead) return;           // 막타였다면 경직 말고 사망으로 처리
+        if (health.IsDead) return;
         if (hitStunDuration <= 0f) return;
 
         if (playerState.TryEnter(PlayerState.HitStun))
-            stunTimer = hitStunDuration;     // 경직 중 또 맞으면 시간이 다시 처음부터
+            stunTimer = hitStunDuration;
     }
 
     private void OnDeath()

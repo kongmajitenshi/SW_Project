@@ -2,7 +2,8 @@ using TMPro;
 using UnityEngine;
 
 /// <summary>
-/// 데미지 숫자 하나. 생성되면 위로 떠오르며 서서히 투명해지다가 스스로 사라진다.
+/// 떠오르며 사라지는 글자 하나. 생성되면 위로 떠오르며 서서히 투명해지다가 스스로 사라진다.
+/// 숫자(데미지)와 문장(패리 알림 등) 둘 다 표시할 수 있다.
 /// 월드 공간 텍스트(TextMeshPro)가 붙은 프리팹에 이 스크립트를 붙여서 사용한다.
 /// </summary>
 [RequireComponent(typeof(TextMeshPro))]
@@ -12,7 +13,7 @@ public class DamagePopup : MonoBehaviour
     [SerializeField, Min(0.1f)] private float lifetime = 0.8f;
     [Tooltip("처음 떠오르는 속도 (점점 느려진다)")]
     [SerializeField] private float riseSpeed = 1.5f;
-    [Tooltip("그리는 순서. 캐릭터·몬스터보다 크게 해야 숫자가 가려지지 않는다.")]
+    [Tooltip("그리는 순서. 캐릭터·몬스터보다 크게 해야 글자가 가려지지 않는다.")]
     [SerializeField] private int sortingOrder = 100;
 
     private TextMeshPro text;
@@ -26,10 +27,18 @@ public class DamagePopup : MonoBehaviour
         text.sortingOrder = sortingOrder;
     }
 
-    /// <summary>생성 직후 호출해서 표시할 숫자를 정한다.</summary>
+    /// <summary>숫자를 표시한다 (데미지용). 소수는 반올림해서 보여준다.</summary>
     public void Setup(float amount)
     {
         text.text = Mathf.RoundToInt(amount).ToString();
+    }
+
+    /// <summary>[추가] 원하는 글자와 색으로 표시한다 (패리 알림 등).</summary>
+    public void Setup(string message, Color color)
+    {
+        text.text = message;
+        startColor = color;   // [추가] 사라지는 연출이 이 색을 기준으로 투명해지도록
+        text.color = color;
     }
 
     private void Update()

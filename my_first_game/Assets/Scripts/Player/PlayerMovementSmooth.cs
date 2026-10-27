@@ -1,13 +1,14 @@
 using UnityEngine;
 
-[RequireComponent(typeof(Rigidbody2D))]
+/// <summary>
+/// 걷기와 대쉬(회피)를 담당한다. 대쉬 시작은 PlayerStateController의 허락을 받는다.
+/// 대쉬 중 무적은 이 스크립트가 아니라 PlayerInvincibility가 상태를 보고 처리한다.
+/// </summary>
+[RequireComponent(typeof(Rigidbody2D), typeof(PlayerInputHandler), typeof(PlayerStateController))]   // [수정]
+[RequireComponent(typeof(PlayerStats), typeof(PlayerStamina))]                                        // [추가]
 public class PlayerMovementSmooth : MonoBehaviour
 {
-    [Header("References")]
-    [SerializeField] private PlayerInputHandler input;
-    [SerializeField] private PlayerStateController playerState;   // [추가]
-    [SerializeField] private PlayerHealthStamina stamina;
-    // [삭제] PlayerAttack attack → 공격 잠금·취소는 상태 관리가 대신 함
+    // [삭제] [Header("References")] input, playerState, stamina 칸 → Awake에서 자동으로 찾음
 
     [Header("Move")]
     [SerializeField] private float moveSpeed = 6f;
@@ -27,8 +28,13 @@ public class PlayerMovementSmooth : MonoBehaviour
     [SerializeField] private AnimationCurve dashSpeedCurve = AnimationCurve.Linear(0f, 1f, 1f, 0.2f);
 
     private Rigidbody2D rb;
-    private Vector2 inputDir;   // [추가] 플레이어가 누른 방향 (경직 중에도 기억 → 대쉬 방향에 사용)
-    private Vector2 moveDir;    // 실제로 걸어갈 방향 (경직·사망 중엔 0)
+    private PlayerInputHandler input;          // [수정] 자동 연결
+    private PlayerStateController playerState; // [수정] 자동 연결
+    private PlayerStats stats;                 // [추가] 대쉬 소모량 읽기용
+    private PlayerStamina stamina;             // [수정] PlayerHealthStamina → PlayerStamina, 자동 연결
+
+    private Vector2 inputDir;
+    private Vector2 moveDir;
     private Vector2 lastDir = Vector2.right;
     private Vector2 dashDir;
     private bool isDashing;
@@ -39,11 +45,17 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     private void Awake()
     {
+        // [수정] 같은 오브젝트의 컴포넌트를 스스로 찾는다
         rb = GetComponent<Rigidbody2D>();
+        input = GetComponent<PlayerInputHandler>();
+        playerState = GetComponent<PlayerStateController>();
+        stats = GetComponent<PlayerStats>();
+        stamina = GetComponent<PlayerStamina>();
 
-        if (input == null || playerState == null || stamina == null)
+        if (input == null || playerState == null || stats == null || stamina == null)
         {
-            Debug.LogError($"{nameof(PlayerMovementSmooth)}: input, playerState, stamina 중 연결되지 않은 것이 있습니다.", this);
+            Debug.LogError($"{nameof(PlayerMovementSmooth)}: 같은 오브젝트에 필요한 컴포넌트가 없습니다. " +
+                           "(PlayerInputHandler, PlayerStateController, PlayerStats, PlayerStamina)", this);
             enabled = false;
         }
     }
@@ -64,12 +76,10 @@ public class PlayerMovementSmooth : MonoBehaviour
         inputDir = Vector2.ClampMagnitude(input.Move, 1f);
         if (inputDir.sqrMagnitude > 0.01f) lastDir = inputDir.normalized;
 
-        // [추가] 경직·사망 중엔 걸어서 이동 불가 (대쉬로 탈출은 가능)
         PlayerState current = playerState.Current;
         bool canWalk = current != PlayerState.HitStun && current != PlayerState.Dead;
         moveDir = canWalk ? inputDir : Vector2.zero;
 
-        // [수정] 대쉬 가능 여부는 상태 관리에게 물어본다
         if (!isDashing && input.DashPressed && Time.time >= nextDashTime
             && playerState.CanEnter(PlayerState.Dashing))
             StartDash();
@@ -88,7 +98,7 @@ public class PlayerMovementSmooth : MonoBehaviour
         }
 
         float maxSpeed = moveSpeed;
-        if (playerState.Current == PlayerState.Attacking) maxSpeed *= moveWhileAttacking;   // [수정]
+        if (playerState.Current == PlayerState.Attacking) maxSpeed *= moveWhileAttacking;
 
         Vector2 targetVelocity = moveDir * maxSpeed;
         bool hasInput = moveDir.sqrMagnitude > 0.01f;
@@ -99,11 +109,10 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     private void StartDash()
     {
-        // 순서 중요: 상태 허락(Update에서 확인) → 스태미나 소모 → 상태 전환 → 무적
-        if (!stamina.TryConsumeStamina(stamina.DashCost)) return;
+        if (!stamina.TryConsume(stats.DashCost)) return;   // [수정] 새 스태미나 스크립트, 소모량은 PlayerStats에서
 
-        playerState.TryEnter(PlayerState.Dashing);   // 공격·패리·경직 중이었다면 여기서 자동으로 취소됨
-        stamina.BeginInvincible();
+        playerState.TryEnter(PlayerState.Dashing);
+        // [삭제] stamina.BeginInvincible(); → PlayerInvincibility가 Dashing 상태를 보고 자동으로 켬
 
         isDashing = true;
         dashTimer = 0f;
@@ -112,15 +121,14 @@ public class PlayerMovementSmooth : MonoBehaviour
 
     private void EndDash()
     {
-        if (!isDashing) return;   // 두 번 불려도 무적이 두 번 꺼지지 않게
+        if (!isDashing) return;
 
         isDashing = false;
-        stamina.EndInvincible();
+        // [삭제] stamina.EndInvincible(); → 상태가 Dashing에서 바뀌면 PlayerInvincibility가 자동으로 끔
         nextDashTime = Time.time + dashCooldown;
         playerState.Exit(PlayerState.Dashing);
     }
 
-    // [추가] 대쉬 도중 다른 상태(사망 등)로 바뀌면 대쉬를 정리한다
     private void OnStateChanged(PlayerState prev, PlayerState next)
     {
         if (isDashing && next != PlayerState.Dashing) EndDash();
