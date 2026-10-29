@@ -1,6 +1,6 @@
 # 콩이의 모험 (Re:KONG) — Claude Code 안내서
 
-이 파일은 claude.ai 채팅에서 진행한 설계·결정 사항을 정리한 것이다. (최종 갱신: 2026-10-28)
+이 파일은 claude.ai 채팅에서 진행한 설계·결정 사항을 정리한 것이다. (최종 갱신: 2026-10-29)
 **실제 코드와 이 문서가 다르면 실제 코드가 기준**이다. 작업 전에 관련 파일을 직접 읽고 확인할 것.
 
 ---
@@ -42,6 +42,11 @@
 - 컴파일 에러가 하나라도 있으면 새 코드가 반영되지 않으므로, 에디터 작업 전에 **콘솔의 `error CS`부터 해결**하도록 안내
 - `RequireComponent`는 이미 붙어 있는 컴포넌트에는 소급 적용되지 않음 → 필요한 컴포넌트는 직접 추가하라고 안내
 - 테스트용으로 바꾼 SO 값(최대 체력 등)은 플레이를 꺼도 유지되므로 원래대로 돌리라고 안내
+- **사용자가 시킨 작업이 끝나면 항상 13장 "작업 기록"에 추가할 것** (진행 상황을 기억하기 위함)
+  - ① 어떤 작업을 했는지 ② 이전과 달라진 점 — 추가 / 수정 / 삭제로 나눠서
+  - 코드만 고친 것과, 사용자가 에디터에서 해야 하는 일(씬·컴포넌트 설정)은 구분하고, 테스트 여부도 적을 것
+  - 구조가 바뀌면 6장(스크립트 구조)·12장(폴더 구조) 같은 본문도 함께 고칠 것
+- 이 파일의 원본은 **프로젝트 폴더(`SW_Project/CLAUDE.md`)** 이다. 구글 드라이브 사본은 자동으로 바뀌지 않음
 
 ## 4. 설계 원칙
 
@@ -95,6 +100,7 @@
 | `StaminaFailFeedback` | 스태미나 부족 시 Visual만 떨기 | Stamina | Shake Target(Visual), 사운드 |
 | `DamagePopupSpawner` | `HitLanded` → 맞은 위치에 숫자 | Attack | DamagePopup 프리팹 |
 | `ParryPopupSpawner` | `ParrySucceeded` → 머리 위에 "패리"/"퍼펙트 패리!" | Parry | ParryPopup 프리팹(한글 폰트), 문구·색 |
+| `ParryCameraShake` | `ParrySucceeded` → Cinemachine Impulse로 카메라 흔들기 (퍼펙트는 더 세게) | Parry, CinemachineImpulseSource | Normal Force(0.3), Perfect Force(0.8) |
 
 플레이어 자식: `Visual`(콩이 스프라이트, 떨림 대상 — Rigidbody 있는 본체는 절대 흔들지 말 것), 무기(개껌 스프라이트 + 공격 판정 BoxCollider2D)
 
@@ -152,6 +158,7 @@
 ## 9. 다음 작업 (권장 순서)
 
 1. **카메라 흔들림**: Cinemachine 설치, Impulse로 패리 성공 시 흔들기 (따라가기·맵 경계·줌도 Cinemachine으로)
+   - 10/29: 설치·패리 흔들림 코드 완료(테스트 미확인). 검토 중: 패리 성공 시 슬로우 모션, 카메라 확대
 2. **스킬 (최소 버전)**: 아래 기본값으로 먼저 동작시키고 조절
 3. **애니메이션 (병행)**: 콩이 Idle 하나로 도트 → 스프라이트 시트 → Animator 연결 한 바퀴 먼저
 
@@ -206,7 +213,8 @@ Assets/
 │   │   └── Feedback/ StaminaFailFeedback
 │   ├── Enemy/        Enemy, EnemyAttacker, EnemyVisual
 │   ├── Combat/       IDamageable, ParryResult
-│   │   └── Feedback/ DamagePopup, DamagePopupSpawner, ParryPopupSpawner
+│   │   └── Feedback/ DamagePopup, DamagePopupSpawner, ParryPopupSpawner, ParryCameraShake
+│   │                 (현재 실제 위치는 Combat/ 바로 아래)
 │   ├── UI/           PlayerStatusUI, StaminaWarningUI
 │   └── Data/         PlayerStatsData, WeaponData, EnemyData, EnemyAttackData
 ├── Data/             SO 에셋 (Weapons/, Enemies/, EnemyAttacks/)
@@ -215,3 +223,36 @@ Assets/
 ├── Sprites/
 └── Fonts/            한글 폰트 SDF (TextMeshPro용)
 ```
+
+## 13. 작업 기록
+
+작업이 끝날 때마다 **맨 위에** 새 항목을 추가한다 (최신이 위). 형식: 날짜 — 제목 / 한 일 / 추가·수정·삭제 / 상태.
+
+### 2026-10-29 — 패리 성공 시 카메라 흔들림
+- **한 일**: Cinemachine 설치(사용자, 커밋 `4dd8106`), 패리 성공 시 카메라를 흔드는 스크립트 작성(Claude Code)
+- **추가 (코드)**: `Scripts/Combat/ParryCameraShake.cs` — `PlayerParry.ParrySucceeded`를 듣고 `CinemachineImpulseSource.GenerateImpulseWithForce()` 호출. 일반 0.3 / 퍼펙트 0.8. Player에 붙이면 Impulse Source 자동 추가
+- **추가 (패키지)**: Cinemachine **6.6.0** (`com.unity.cinemachine`, 네임스페이스 `Unity.Cinemachine`, Cinemachine 3 계열 API)
+- **에디터 작업 (안내함)**: `GameObject > Cinemachine > Targeted Cameras > 2D Camera`로 CinemachineCamera 생성(Main Camera에 CinemachineBrain 자동 추가) → CinemachineCamera에 Add Extension `Cinemachine Impulse Listener` → Player에 `ParryCameraShake` 추가 (Impulse Shape Bump, Duration 0.2 권장)
+- **수정 / 삭제**: 없음 (기존 스크립트는 그대로)
+- **상태**: 플레이 테스트 결과 미확인. 씬 변경(`SampleScene.unity`)은 아직 커밋 전
+
+### 2026-10-28 — CLAUDE.md 갱신·프로젝트 폴더로 이동 (`17fe26e`)
+- **한 일**: 채팅 설계를 새 지침으로 정리, 구글 드라이브에서 `SW_Project/CLAUDE.md`로 복사해 Git에 추가
+- **변경**: 예전 "8. 적용 상태 주의" 항목 삭제(아래 10/27·10/28 커밋으로 반영됨), 설계 원칙·작업 규칙 추가, 다음 작업을 Cinemachine·스킬·애니메이션으로 정리
+
+### 2026-10-28 — 구조 변경 (`b16f43f`, 채팅 코드 적용)
+- **추가**: `PlayerStats`(최종 수치), `PlayerHealth`, `PlayerStamina`, `PlayerInvincibility`(대쉬 중 무적 규칙), `ParryPopupSpawner`, `Prefab/ParryPopup.prefab`
+- **삭제**: `PlayerHealthStamina` → Stats / Health / Stamina 세 개로 분리
+- **수정**: `PlayerAttack`, `PlayerMovementSmooth`, `PlayerParry`, `PlayerHitReaction`, `StaminaFailFeedback`, `PlayerStatusUI`, `StaminaWarningUI`, `DamagePopup`, `DamagePopupSpawner`, `EnemyAttacker` — 새 스크립트를 쓰도록 바꾸고, 같은 오브젝트 컴포넌트는 자동 연결
+
+### 2026-10-27 — 플레이어 상태 관리, 피격 경직, 몬스터 사망 (`1d53d8c`, 채팅 코드 적용)
+- **추가**: `PlayerStateController`(행동 규칙표), `PlayerHitReaction`(경직·사망 상태), `EnemyVisual`(적 색 담당)
+- **삭제**: 옛 `Scripts/PlayerMovement.cs`, `PlayerAttack`의 `InputLocked`와 공개 `CancelAttack` (→ `TryEnter`/`StateChanged` 방식)
+- **수정**: `Enemy`(사망 처리), `EnemyAttacker`, `PlayerAttack`, `PlayerMovementSmooth`, `PlayerParry`
+- **이동**: `Enemy`·`EnemyAttacker`·`EnemyData` → `Scripts/Enemy/`, `EnemyAttackData` → `Scripts/Data/`, `ParryResult` → `Scripts/Player/`
+- 같은 날 Claude Code로 예전 지침의 "적용 상태 주의" 항목을 점검 → 당시 코드에 미반영 상태였음을 확인한 뒤 이 커밋으로 반영
+
+### 그 이전 (커밋 기록 요약)
+- 09/24~09/28: 공격(선딜·판정·후딜), 이동·대쉬·패리 첫 버전, 애니메이터 수정
+- 10/01~10/02: 체력·스태미나, 콩이·개껌 이미지, 데미지 팝업, 공격력, 무기 오브젝트
+- 10/05: 패리 테스트 (`261005_ParryTest`)
